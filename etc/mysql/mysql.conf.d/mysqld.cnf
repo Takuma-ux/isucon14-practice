@@ -12,6 +12,11 @@
 # The following values assume you have at least 32M ram
 
 [mysqld]
+slow_query_log = 1
+slow_query_log_file = /var/log/mysql/mysql-slow.log
+long_query_time = 0
+log_queries_not_using_indexes = 1
+
 #
 # * Basic Settings
 #
