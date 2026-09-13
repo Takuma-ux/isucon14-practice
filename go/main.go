@@ -63,6 +63,9 @@ func setup() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	// max_connections(MySQL) 未満に抑え、Too many connections を防ぐ
+	_db.SetMaxOpenConns(100)
+	_db.SetMaxIdleConns(100)
 	db = _db
 
 	mux := chi.NewRouter()
