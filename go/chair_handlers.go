@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-
+	"time"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -112,6 +112,18 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chair := ctx.Value("chair").(*Chair)
+	recordedAt := time.Now()
+
+	distance :=0
+
+	if chair.Latitude.Valid && chair.Longitude.Valid {
+		distance = calculateDistance(
+			int(chair.Latitude.Int64),
+			int(chair.Longitude.Int64),
+			req.Latitude,
+			req.Longitude,
+		)
+	}
 
 	tx, err := db.Beginx()
 	if err != nil {
@@ -130,34 +142,6 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	location := &ChairLocation{}
-	if err := tx.GetContext(ctx, location, `SELECT * FROM chair_locations WHERE id = ?`, chairLocationID); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	// ここから追加：直前座標との差をchairs.total_distanceに加算
-	prev := &ChairLocation{}
-	err = tx.GetContext(
-		ctx,
-		prev,
-		`SELECT * FROM chair_locations
-		 WHERE chair_id = ? AND id != ?
-		 ORDER BY created_at DESC
-		 LIMIT 1`,
-		chair.ID, chairLocationID,
-	)
-	distance := 0
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		// 初回座標。LAGと同じく距離は0
-	} else {
-		distance = calculateDistance(prev.Latitude, prev.Longitude, req.Latitude, req.Longitude)
-	}
-
 	if _, err := tx.ExecContext(
 		ctx,
 		`UPDATE chairs
@@ -166,7 +150,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 			latitude = ?,
 			longitude = ?
 		WHERE id = ?`,
-		distance, location.CreatedAt, req.Latitude, req.Longitude, chair.ID,
+		distance, recordedAt, req.Latitude, req.Longitude, chair.ID,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -179,11 +163,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		status, err := getLatestRideStatus(ctx, tx, ride.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
+		status := ride.LatestStatus.String
 		if status != "COMPLETED" && status != "CANCELED" {
 			if req.Latitude == ride.PickupLatitude && req.Longitude == ride.PickupLongitude && status == "ENROUTE" {
 				if err := insertRideStatus(ctx, tx, ride.ID, "PICKUP"); err != nil {
@@ -207,7 +187,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, &chairPostCoordinateResponse{
-		RecordedAt: location.CreatedAt.UnixMilli(),
+		RecordedAt: recordedAt.UnixMilli(),
 	})
 }
 
