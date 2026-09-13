@@ -283,12 +283,34 @@ type executableGet interface {
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+func insertRideStatus(ctx context.Context, exec execer, rideID, status string) error {
+	if _, err := exec.ExecContext(
+		ctx,
+		`INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)`,
+		ulid.Make().String(), rideID, status,
+	); err != nil {
+		return err
+	}
+	if _, err := exec.ExecContext(
+		ctx,
+		`UPDATE rides SET latest_status = ? WHERE id = ?`,
+		status, rideID,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 func getLatestRideStatus(ctx context.Context, tx executableGet, rideID string) (string, error) {
-	status := ""
-	if err := tx.GetContext(ctx, &status, `SELECT status FROM ride_statuses WHERE ride_id = ? ORDER BY created_at DESC LIMIT 1`, rideID); err != nil {
+	status := sql.NullString{}
+	if err := tx.GetContext(ctx, &status, `SELECT latest_status FROM rides WHERE id = ?`, rideID); err != nil {
 		return "", err
 	}
-	return status, nil
+	return status.String, nil
 }
 
 func appPostRides(w http.ResponseWriter, r *http.Request) {
@@ -346,11 +368,7 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)`,
-		ulid.Make().String(), rideID, "MATCHING",
-	); err != nil {
+	if err := insertRideStatus(ctx, tx, rideID, "MATCHING"); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -562,11 +580,7 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.ExecContext(
-		ctx,
-		`INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)`,
-		ulid.Make().String(), rideID, "COMPLETED")
-	if err != nil {
+	if err := insertRideStatus(ctx, tx, rideID, "COMPLETED"); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
