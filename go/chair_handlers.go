@@ -45,10 +45,19 @@ func chairPostChairs(w http.ResponseWriter, r *http.Request) {
 	chairID := ulid.Make().String()
 	accessToken := secureRandomStr(32)
 
+	speed := 1
+	if err := db.GetContext(ctx, &speed, `SELECT speed FROM chair_models WHERE name = ?`, req.Model); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		speed = 1
+	}
+
 	_, err := db.ExecContext(
 		ctx,
-		"INSERT INTO chairs (id, owner_id, name, model, is_active, access_token) VALUES (?, ?, ?, ?, ?, ?)",
-		chairID, owner.ID, req.Name, req.Model, false, accessToken,
+		"INSERT INTO chairs (id, owner_id, name, model, is_active, access_token, speed, is_free) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		chairID, owner.ID, req.Name, req.Model, false, accessToken, speed, true,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -153,9 +162,11 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		ctx,
 		`UPDATE chairs
 		SET total_distance = total_distance + ?,
-			total_distance_updated_at = ?
+			total_distance_updated_at = ?,
+			latitude = ?,
+			longitude = ?
 		WHERE id = ?`,
-		distance, location.CreatedAt, chair.ID,
+		distance, location.CreatedAt, req.Latitude, req.Longitude, chair.ID,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -270,6 +281,13 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
+		}
+		// 評価完了の INSERT 時点では空けない。椅子が COMPLETED を受け取るまで次の配車を付けない
+		if yetSentRideStatus.Status == "COMPLETED" {
+			if _, err := tx.ExecContext(ctx, `UPDATE chairs SET is_free = TRUE WHERE id = ?`, chair.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
 		}
 	}
 

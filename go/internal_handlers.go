@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -9,45 +10,81 @@ import (
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	// MEMO: 一旦最も待たせているリクエストに適当な空いている椅子マッチさせる実装とする。おそらくもっといい方法があるはず…
-	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
 
-	matched := &Chair{}
-	empty := false
-	for i := 0; i < 10; i++ {
-		if err := db.GetContext(ctx, matched, "SELECT * FROM chairs INNER JOIN (SELECT id FROM chairs WHERE is_active = TRUE ORDER BY RAND() LIMIT 1) AS tmp ON chairs.id = tmp.id LIMIT 1"); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			writeError(w, http.StatusInternalServerError, err)
-		}
-
-		if err := db.GetContext(ctx, &empty, "SELECT COUNT(*) = 0 FROM (SELECT COUNT(chair_sent_at) = 6 AS completed FROM ride_statuses WHERE ride_id IN (SELECT id FROM rides WHERE chair_id = ?) GROUP BY ride_id) is_completed WHERE completed = FALSE", matched.ID); err != nil {
+	for {
+		matched, err := matchOneRide(ctx)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		if empty {
+		if !matched {
 			break
 		}
 	}
-	if !empty {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if _, err := db.ExecContext(ctx, "UPDATE rides SET chair_id = ? WHERE id = ?", matched.ID, ride.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func matchOneRide(ctx context.Context) (bool, error) {
+	tx, err := db.Beginx()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	ride := &Ride{}
+	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	matched := &Chair{}
+	if err := tx.GetContext(
+		ctx,
+		matched,
+		`SELECT * FROM chairs
+		 WHERE is_active = TRUE
+		   AND is_free = TRUE
+		   AND latitude IS NOT NULL
+		   AND longitude IS NOT NULL
+		 ORDER BY (ABS(latitude - ?) + ABS(longitude - ?)) / IF(speed > 0, speed, 1) ASC
+		 LIMIT 1`,
+		ride.PickupLatitude, ride.PickupLongitude,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	result, err := tx.ExecContext(ctx, `UPDATE chairs SET is_free = FALSE WHERE id = ? AND is_free = TRUE`, matched.ID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return true, nil
+	}
+
+	result, err = tx.ExecContext(ctx, `UPDATE rides SET chair_id = ? WHERE id = ? AND chair_id IS NULL`, matched.ID, ride.ID)
+	if err != nil {
+		return false, err
+	}
+	n, err = result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return true, nil
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
