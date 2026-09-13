@@ -11,6 +11,17 @@ import (
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// 0.1s 間隔でも、待ちライドが無いときはトランザクションを開かない
+	var waiting string
+	if err := db.GetContext(ctx, &waiting, `SELECT id FROM rides WHERE chair_id IS NULL LIMIT 1`); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
 	for {
 		matched, err := matchOneRide(ctx)
 		if err != nil {
