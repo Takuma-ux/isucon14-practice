@@ -49,11 +49,13 @@ UPDATE rides r
             GROUP BY ride_id
         ) t ON t.ride_id = rs.ride_id AND t.max_at = rs.created_at
     ) x ON x.ride_id = r.id
-SET r.latest_status = x.status;
+SET r.latest_status = x.status,
+    r.updated_at = r.updated_at;
 
 UPDATE chairs c
     INNER JOIN chair_models m ON m.name = c.model
-SET c.speed = m.speed;
+SET c.speed = m.speed,
+    c.updated_at = c.updated_at;
 
 UPDATE chairs c
     INNER JOIN (
@@ -66,7 +68,8 @@ UPDATE chairs c
         ) t ON t.chair_id = cl.chair_id AND t.max_at = cl.created_at
     ) x ON x.chair_id = c.id
 SET c.latitude = x.latitude,
-    c.longitude = x.longitude;
+    c.longitude = x.longitude,
+    c.updated_at = c.updated_at;
 
 UPDATE chairs c
 LEFT JOIN (
@@ -76,4 +79,5 @@ LEFT JOIN (
     GROUP BY r.id, r.chair_id
     HAVING COUNT(rs.chair_sent_at) < 6
 ) busy ON busy.chair_id = c.id
-SET c.is_free = (busy.chair_id IS NULL);
+SET c.is_free = (busy.chair_id IS NULL),
+    c.updated_at = c.updated_at;
