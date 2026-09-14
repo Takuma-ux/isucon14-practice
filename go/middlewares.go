@@ -74,7 +74,8 @@ func chairAuthMiddleware(next http.Handler) http.Handler {
 			        latitude, longitude,
 			        active_ride_id, active_ride_status,
 			        active_pickup_latitude, active_pickup_longitude,
-			        active_destination_latitude, active_destination_longitude
+			        active_destination_latitude, active_destination_longitude,
+			        active_user_id, active_user_firstname, active_user_lastname
 			 FROM chairs WHERE access_token = ?`,
 			accessToken,
 		)

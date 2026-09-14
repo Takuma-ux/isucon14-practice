@@ -28,6 +28,9 @@ type Chair struct {
 	ActivePickupLongitude        sql.NullInt64  `db:"active_pickup_longitude"`
 	ActiveDestinationLatitude    sql.NullInt64  `db:"active_destination_latitude"`
 	ActiveDestinationLongitude   sql.NullInt64  `db:"active_destination_longitude"`
+	ActiveUserID                 sql.NullString `db:"active_user_id"`
+	ActiveUserFirstname          sql.NullString `db:"active_user_firstname"`
+	ActiveUserLastname           sql.NullString `db:"active_user_lastname"`
 }
 
 type ChairModel struct {

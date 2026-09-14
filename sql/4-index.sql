@@ -45,6 +45,9 @@ ALTER TABLE chairs
     ADD COLUMN active_pickup_longitude INT NULL,
     ADD COLUMN active_destination_latitude INT NULL,
     ADD COLUMN active_destination_longitude INT NULL,
+    ADD COLUMN active_user_id VARCHAR(26) NULL,
+    ADD COLUMN active_user_firstname VARCHAR(30) NULL,
+    ADD COLUMN active_user_lastname VARCHAR(30) NULL,
     ADD INDEX idx_chairs_matching(is_active, is_free),
     ADD INDEX idx_chairs_active_ride_id(active_ride_id);
 
@@ -118,11 +121,15 @@ INNER JOIN rides r ON r.id = (
     ORDER BY r2.updated_at DESC
     LIMIT 1
 )
+INNER JOIN users u ON u.id = r.user_id
 SET c.active_ride_id = r.id,
     c.active_ride_status = r.latest_status,
     c.active_pickup_latitude = r.pickup_latitude,
     c.active_pickup_longitude = r.pickup_longitude,
     c.active_destination_latitude = r.destination_latitude,
     c.active_destination_longitude = r.destination_longitude,
+    c.active_user_id = u.id,
+    c.active_user_firstname = u.firstname,
+    c.active_user_lastname = u.lastname,
     c.updated_at = c.updated_at
 WHERE c.is_free = FALSE;

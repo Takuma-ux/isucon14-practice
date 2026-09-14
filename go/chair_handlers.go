@@ -197,35 +197,18 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE id = ?`, chair.ActiveRideID.String); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
-				RetryAfterMs: 30,
-			})
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
+	rideID := chair.ActiveRideID.String
 	yetSentRideStatus := RideStatus{}
 	status := ""
-	if err := db.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND chair_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
+	if err := db.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND chair_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, rideID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			status = ride.LatestStatus.String
+			status = chair.ActiveRideStatus.String
 		} else {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 	} else {
 		status = yetSentRideStatus.Status
-	}
-
-	user := &User{}
-	if err := db.GetContext(ctx, user, "SELECT id, firstname, lastname FROM users WHERE id = ?", ride.UserID); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
 	}
 
 	if yetSentRideStatus.ID != "" {
@@ -244,7 +227,10 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 				     active_pickup_latitude = NULL,
 				     active_pickup_longitude = NULL,
 				     active_destination_latitude = NULL,
-				     active_destination_longitude = NULL
+				     active_destination_longitude = NULL,
+				     active_user_id = NULL,
+				     active_user_firstname = NULL,
+				     active_user_lastname = NULL
 				 WHERE id = ?`,
 				chair.ID,
 			); err != nil {
@@ -256,18 +242,18 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
 		Data: &chairGetNotificationResponseData{
-			RideID: ride.ID,
+			RideID: rideID,
 			User: simpleUser{
-				ID:   user.ID,
-				Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
+				ID:   chair.ActiveUserID.String,
+				Name: fmt.Sprintf("%s %s", chair.ActiveUserFirstname.String, chair.ActiveUserLastname.String),
 			},
 			PickupCoordinate: Coordinate{
-				Latitude:  ride.PickupLatitude,
-				Longitude: ride.PickupLongitude,
+				Latitude:  int(chair.ActivePickupLatitude.Int64),
+				Longitude: int(chair.ActivePickupLongitude.Int64),
 			},
 			DestinationCoordinate: Coordinate{
-				Latitude:  ride.DestinationLatitude,
-				Longitude: ride.DestinationLongitude,
+				Latitude:  int(chair.ActiveDestinationLatitude.Int64),
+				Longitude: int(chair.ActiveDestinationLongitude.Int64),
 			},
 			Status: status,
 		},

@@ -47,7 +47,7 @@ func matchOneRide(ctx context.Context) (bool, error) {
 	if err := tx.GetContext(
 		ctx,
 		ride,
-		`SELECT id, pickup_latitude, pickup_longitude,
+		`SELECT id, user_id, pickup_latitude, pickup_longitude,
 		        destination_latitude, destination_longitude, latest_status
 		 FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`,
 	); err != nil {
@@ -76,6 +76,11 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
+	user := &User{}
+	if err := tx.GetContext(ctx, user, `SELECT id, firstname, lastname FROM users WHERE id = ?`, ride.UserID); err != nil {
+		return false, err
+	}
+
 	status := ride.LatestStatus.String
 	if status == "" {
 		status = "MATCHING"
@@ -89,11 +94,15 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		     active_pickup_latitude = ?,
 		     active_pickup_longitude = ?,
 		     active_destination_latitude = ?,
-		     active_destination_longitude = ?
+		     active_destination_longitude = ?,
+		     active_user_id = ?,
+		     active_user_firstname = ?,
+		     active_user_lastname = ?
 		 WHERE id = ? AND is_free = TRUE`,
 		ride.ID, status,
 		ride.PickupLatitude, ride.PickupLongitude,
 		ride.DestinationLatitude, ride.DestinationLongitude,
+		user.ID, user.Firstname, user.Lastname,
 		matchedID,
 	)
 	if err != nil {
