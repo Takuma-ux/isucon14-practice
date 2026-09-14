@@ -114,8 +114,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	chair := ctx.Value("chair").(*Chair)
 	recordedAt := time.Now()
 
-	distance :=0
-
+	distance := 0
 	if chair.Latitude.Valid && chair.Longitude.Valid {
 		distance = calculateDistance(
 			int(chair.Latitude.Int64),
@@ -125,24 +124,8 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	tx, err := db.Beginx()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer tx.Rollback()
-
-	chairLocationID := ulid.Make().String()
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO chair_locations (id, chair_id, latitude, longitude) VALUES (?, ?, ?, ?)`,
-		chairLocationID, chair.ID, req.Latitude, req.Longitude,
-	); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	if _, err := tx.ExecContext(
+	// chair_locations への履歴 INSERT はしない（Go 経路は chairs の lat/lng / total_distance で足りる）
+	if _, err := db.ExecContext(
 		ctx,
 		`UPDATE chairs
 		SET total_distance = total_distance + ?,
@@ -157,7 +140,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ride := &Ride{}
-	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
+	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -166,24 +149,19 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		status := ride.LatestStatus.String
 		if status != "COMPLETED" && status != "CANCELED" {
 			if req.Latitude == ride.PickupLatitude && req.Longitude == ride.PickupLongitude && status == "ENROUTE" {
-				if err := insertRideStatus(ctx, tx, ride.ID, "PICKUP"); err != nil {
+				if err := insertRideStatus(ctx, db, ride.ID, "PICKUP"); err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
 			}
 
 			if req.Latitude == ride.DestinationLatitude && req.Longitude == ride.DestinationLongitude && status == "CARRYING" {
-				if err := insertRideStatus(ctx, tx, ride.ID, "ARRIVED"); err != nil {
+				if err := insertRideStatus(ctx, db, ride.ID, "ARRIVED"); err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
 			}
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
 	}
 
 	writeJSON(w, http.StatusOK, &chairPostCoordinateResponse{
@@ -217,7 +195,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
-				RetryAfterMs: 30,
+				RetryAfterMs: 10,
 			})
 			return
 		}
@@ -245,27 +223,16 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if yetSentRideStatus.ID != "" {
-		tx, err := db.Beginx()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		defer tx.Rollback()
-
-		if _, err := tx.ExecContext(ctx, `UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id = ?`, yetSentRideStatus.ID); err != nil {
+		if _, err := db.ExecContext(ctx, `UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id = ?`, yetSentRideStatus.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 		// 評価完了の INSERT 時点では空けない。椅子が COMPLETED を受け取るまで次の配車を付けない
 		if yetSentRideStatus.Status == "COMPLETED" {
-			if _, err := tx.ExecContext(ctx, `UPDATE chairs SET is_free = TRUE WHERE id = ?`, chair.ID); err != nil {
+			if _, err := db.ExecContext(ctx, `UPDATE chairs SET is_free = TRUE WHERE id = ?`, chair.ID); err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
-		}
-		if err := tx.Commit(); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
 		}
 	}
 
@@ -286,7 +253,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 			},
 			Status: status,
 		},
-		RetryAfterMs: 30,
+		RetryAfterMs: 10,
 	})
 }
 
