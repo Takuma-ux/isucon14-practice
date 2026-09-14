@@ -4,13 +4,12 @@ set -e
 cd /home/isucon/isucon14-practice
 git pull origin feature/keita_test
 
-sudo systemctl stop isuride-python
+sudo systemctl stop isuride-go
 
-cp -a python/. /home/isucon/webapp/python/
+cp -a go/*.go go/go.mod go/go.sum /home/isucon/webapp/go/
 
-cd /home/isucon/webapp/python
-# 依存関係を足したらコメントを外す
-# ~/.local/bin/uv sync
+cd /home/isucon/webapp/go
+go build -o isuride
 
-sudo systemctl start isuride-python
+sudo systemctl start isuride-go
 echo "deploy done"
