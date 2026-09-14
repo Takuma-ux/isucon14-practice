@@ -39,7 +39,14 @@ ALTER TABLE chairs
     ADD COLUMN is_free TINYINT(1) NOT NULL DEFAULT 1,
     ADD COLUMN total_rides_count INT NOT NULL DEFAULT 0,
     ADD COLUMN total_evaluation_sum BIGINT NOT NULL DEFAULT 0,
-    ADD INDEX idx_chairs_matching(is_active, is_free);
+    ADD COLUMN active_ride_id VARCHAR(26) NULL,
+    ADD COLUMN active_ride_status VARCHAR(32) NULL,
+    ADD COLUMN active_pickup_latitude INT NULL,
+    ADD COLUMN active_pickup_longitude INT NULL,
+    ADD COLUMN active_destination_latitude INT NULL,
+    ADD COLUMN active_destination_longitude INT NULL,
+    ADD INDEX idx_chairs_matching(is_active, is_free),
+    ADD INDEX idx_chairs_active_ride_id(active_ride_id);
 
 UPDATE rides r
     INNER JOIN (
@@ -101,3 +108,21 @@ INNER JOIN (
 SET c.total_rides_count = s.cnt,
     c.total_evaluation_sum = IFNULL(s.eval_sum, 0),
     c.updated_at = c.updated_at;
+
+-- coordinate 用: 進行中ライドを chairs に載せる（is_free=FALSE の椅子）
+UPDATE chairs c
+INNER JOIN rides r ON r.id = (
+    SELECT r2.id
+    FROM rides r2
+    WHERE r2.chair_id = c.id
+    ORDER BY r2.updated_at DESC
+    LIMIT 1
+)
+SET c.active_ride_id = r.id,
+    c.active_ride_status = r.latest_status,
+    c.active_pickup_latitude = r.pickup_latitude,
+    c.active_pickup_longitude = r.pickup_longitude,
+    c.active_destination_latitude = r.destination_latitude,
+    c.active_destination_longitude = r.destination_longitude,
+    c.updated_at = c.updated_at
+WHERE c.is_free = FALSE;

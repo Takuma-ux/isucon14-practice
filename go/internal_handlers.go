@@ -70,7 +70,26 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	result, err := tx.ExecContext(ctx, `UPDATE chairs SET is_free = FALSE WHERE id = ? AND is_free = TRUE`, matched.ID)
+	status := ride.LatestStatus.String
+	if status == "" {
+		status = "MATCHING"
+	}
+	result, err := tx.ExecContext(
+		ctx,
+		`UPDATE chairs
+		 SET is_free = FALSE,
+		     active_ride_id = ?,
+		     active_ride_status = ?,
+		     active_pickup_latitude = ?,
+		     active_pickup_longitude = ?,
+		     active_destination_latitude = ?,
+		     active_destination_longitude = ?
+		 WHERE id = ? AND is_free = TRUE`,
+		ride.ID, status,
+		ride.PickupLatitude, ride.PickupLongitude,
+		ride.DestinationLatitude, ride.DestinationLongitude,
+		matched.ID,
+	)
 	if err != nil {
 		return false, err
 	}

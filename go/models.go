@@ -22,6 +22,12 @@ type Chair struct {
 	IsFree                 bool         `db:"is_free"`
 	TotalRidesCount        int          `db:"total_rides_count"`
 	TotalEvaluationSum     int64        `db:"total_evaluation_sum"`
+	ActiveRideID                 sql.NullString `db:"active_ride_id"`
+	ActiveRideStatus             sql.NullString `db:"active_ride_status"`
+	ActivePickupLatitude         sql.NullInt64  `db:"active_pickup_latitude"`
+	ActivePickupLongitude        sql.NullInt64  `db:"active_pickup_longitude"`
+	ActiveDestinationLatitude    sql.NullInt64  `db:"active_destination_latitude"`
+	ActiveDestinationLongitude   sql.NullInt64  `db:"active_destination_longitude"`
 }
 
 type ChairModel struct {

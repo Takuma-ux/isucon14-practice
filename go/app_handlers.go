@@ -297,6 +297,14 @@ func insertRideStatus(ctx context.Context, exec execer, rideID, status string) e
 	); err != nil {
 		return err
 	}
+	// coordinate が rides SELECT せずに状態判定できるよう chairs 側も同期
+	if _, err := exec.ExecContext(
+		ctx,
+		`UPDATE chairs SET active_ride_status = ? WHERE active_ride_id = ?`,
+		status, rideID,
+	); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -139,24 +139,23 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-	} else {
-		status := ride.LatestStatus.String
+	// middleware で読んだ chairs.active_ride_* を使う（rides の ORDER BY SELECT をしない）
+	if chair.ActiveRideID.Valid {
+		status := chair.ActiveRideStatus.String
 		if status != "COMPLETED" && status != "CANCELED" {
-			if req.Latitude == ride.PickupLatitude && req.Longitude == ride.PickupLongitude && status == "ENROUTE" {
-				if err := insertRideStatus(ctx, db, ride.ID, "PICKUP"); err != nil {
+			if req.Latitude == int(chair.ActivePickupLatitude.Int64) &&
+				req.Longitude == int(chair.ActivePickupLongitude.Int64) &&
+				status == "ENROUTE" {
+				if err := insertRideStatus(ctx, db, chair.ActiveRideID.String, "PICKUP"); err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
 			}
 
-			if req.Latitude == ride.DestinationLatitude && req.Longitude == ride.DestinationLongitude && status == "CARRYING" {
-				if err := insertRideStatus(ctx, db, ride.ID, "ARRIVED"); err != nil {
+			if req.Latitude == int(chair.ActiveDestinationLatitude.Int64) &&
+				req.Longitude == int(chair.ActiveDestinationLongitude.Int64) &&
+				status == "CARRYING" {
+				if err := insertRideStatus(ctx, db, chair.ActiveRideID.String, "ARRIVED"); err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
@@ -191,8 +190,15 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	chair := ctx.Value("chair").(*Chair)
 
+	if !chair.ActiveRideID.Valid {
+		writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
+			RetryAfterMs: 30,
+		})
+		return
+	}
+
 	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
+	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE id = ?`, chair.ActiveRideID.String); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
 				RetryAfterMs: 30,
@@ -229,7 +235,19 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		}
 		// 評価完了の INSERT 時点では空けない。椅子が COMPLETED を受け取るまで次の配車を付けない
 		if yetSentRideStatus.Status == "COMPLETED" {
-			if _, err := db.ExecContext(ctx, `UPDATE chairs SET is_free = TRUE WHERE id = ?`, chair.ID); err != nil {
+			if _, err := db.ExecContext(
+				ctx,
+				`UPDATE chairs
+				 SET is_free = TRUE,
+				     active_ride_id = NULL,
+				     active_ride_status = NULL,
+				     active_pickup_latitude = NULL,
+				     active_pickup_longitude = NULL,
+				     active_destination_latitude = NULL,
+				     active_destination_longitude = NULL
+				 WHERE id = ?`,
+				chair.ID,
+			); err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
