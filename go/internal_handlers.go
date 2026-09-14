@@ -44,18 +44,24 @@ func matchOneRide(ctx context.Context) (bool, error) {
 	defer tx.Rollback()
 
 	ride := &Ride{}
-	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`); err != nil {
+	if err := tx.GetContext(
+		ctx,
+		ride,
+		`SELECT id, pickup_latitude, pickup_longitude,
+		        destination_latitude, destination_longitude, latest_status
+		 FROM rides WHERE chair_id IS NULL ORDER BY created_at LIMIT 1`,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
 	}
 
-	matched := &Chair{}
+	var matchedID string
 	if err := tx.GetContext(
 		ctx,
-		matched,
-		`SELECT * FROM chairs
+		&matchedID,
+		`SELECT id FROM chairs
 		 WHERE is_active = TRUE
 		   AND is_free = TRUE
 		   AND latitude IS NOT NULL
@@ -88,7 +94,7 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		ride.ID, status,
 		ride.PickupLatitude, ride.PickupLongitude,
 		ride.DestinationLatitude, ride.DestinationLongitude,
-		matched.ID,
+		matchedID,
 	)
 	if err != nil {
 		return false, err
@@ -101,7 +107,7 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	result, err = tx.ExecContext(ctx, `UPDATE rides SET chair_id = ? WHERE id = ? AND chair_id IS NULL`, matched.ID, ride.ID)
+	result, err = tx.ExecContext(ctx, `UPDATE rides SET chair_id = ? WHERE id = ? AND chair_id IS NULL`, matchedID, ride.ID)
 	if err != nil {
 		return false, err
 	}

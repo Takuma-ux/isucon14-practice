@@ -69,7 +69,7 @@ func setup() http.Handler {
 	db = _db
 
 	mux := chi.NewRouter()
-	mux.Use(middleware.Logger)
+	// 座標・通知の高頻度リクエストでは Logger のコストが大きいため付けない
 	mux.Use(middleware.Recoverer)
 	mux.HandleFunc("POST /api/initialize", postInitialize)
 
