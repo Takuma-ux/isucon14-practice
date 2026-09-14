@@ -761,7 +761,8 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 
 func getChairStats(ctx context.Context, tx *sqlx.Tx, chairID string) (appGetNotificationResponseChairStats, error) {
 	stats := appGetNotificationResponseChairStats{}
-	// COMPLETED 済み（evaluation 付き）のみ集計。旧実装の ARRIVED+CARRYING+COMPLETED 走査と同等
+	// ベンチ互換: ARRIVED・CARRYING・COMPLETED が全て揃ったライドのみ完走とみなす
+	// （evaluation だけだと、定義がずれて CODE=33 になる）
 	row := struct {
 		Cnt     int             `db:"cnt"`
 		AvgEval sql.NullFloat64 `db:"avg_eval"`
@@ -769,9 +770,12 @@ func getChairStats(ctx context.Context, tx *sqlx.Tx, chairID string) (appGetNoti
 	if err := tx.GetContext(
 		ctx,
 		&row,
-		`SELECT COUNT(*) AS cnt, AVG(evaluation) AS avg_eval
-		 FROM rides
-		 WHERE chair_id = ? AND evaluation IS NOT NULL`,
+		`SELECT COUNT(*) AS cnt, AVG(r.evaluation) AS avg_eval
+		 FROM rides r
+		 WHERE r.chair_id = ?
+		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'ARRIVED')
+		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'CARRYING')
+		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'COMPLETED')`,
 		chairID,
 	); err != nil {
 		return stats, err
