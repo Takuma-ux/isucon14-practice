@@ -37,6 +37,8 @@ ALTER TABLE chairs
     ADD COLUMN longitude INT NULL,
     ADD COLUMN speed INT NOT NULL DEFAULT 1,
     ADD COLUMN is_free TINYINT(1) NOT NULL DEFAULT 1,
+    ADD COLUMN total_rides_count INT NOT NULL DEFAULT 0,
+    ADD COLUMN total_evaluation_sum BIGINT NOT NULL DEFAULT 0,
     ADD INDEX idx_chairs_matching(is_active, is_free);
 
 UPDATE rides r
@@ -80,4 +82,22 @@ LEFT JOIN (
     HAVING COUNT(rs.chair_sent_at) < 6
 ) busy ON busy.chair_id = c.id
 SET c.is_free = (busy.chair_id IS NULL),
+    c.updated_at = c.updated_at;
+
+-- getChairStats 用: ARRIVED+CARRYING+COMPLETED 完走の件数・評価合計を chairs に載せる
+UPDATE chairs c
+INNER JOIN (
+    SELECT r.chair_id,
+           COUNT(*) AS cnt,
+           SUM(r.evaluation) AS eval_sum
+    FROM rides r
+    WHERE r.chair_id IS NOT NULL
+      AND r.evaluation IS NOT NULL
+      AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'ARRIVED')
+      AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'CARRYING')
+      AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'COMPLETED')
+    GROUP BY r.chair_id
+) s ON s.chair_id = c.id
+SET c.total_rides_count = s.cnt,
+    c.total_evaluation_sum = IFNULL(s.eval_sum, 0),
     c.updated_at = c.updated_at;

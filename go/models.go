@@ -20,6 +20,8 @@ type Chair struct {
 	Longitude              sql.NullInt64 `db:"longitude"`
 	Speed                  int          `db:"speed"`
 	IsFree                 bool         `db:"is_free"`
+	TotalRidesCount        int          `db:"total_rides_count"`
+	TotalEvaluationSum     int64        `db:"total_evaluation_sum"`
 }
 
 type ChairModel struct {
