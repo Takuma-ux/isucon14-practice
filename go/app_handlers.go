@@ -666,8 +666,15 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := ctx.Value("user").(*User)
 
+	tx, err := db.Beginx()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer tx.Rollback()
+
 	ride := &Ride{}
-	if err := db.GetContext(ctx, ride, `SELECT * FROM rides WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`, user.ID); err != nil {
+	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`, user.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, &appGetNotificationResponse{
 				RetryAfterMs: 30,
@@ -680,7 +687,7 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	yetSentRideStatus := RideStatus{}
 	status := ""
-	if err := db.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND app_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
+	if err := tx.GetContext(ctx, &yetSentRideStatus, `SELECT * FROM ride_statuses WHERE ride_id = ? AND app_sent_at IS NULL ORDER BY created_at ASC LIMIT 1`, ride.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			status = ride.LatestStatus.String
 		} else {
@@ -690,13 +697,6 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 	} else {
 		status = yetSentRideStatus.Status
 	}
-
-	tx, err := db.Beginx()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer tx.Rollback()
 
 	fare, err := calculateDiscountedFare(ctx, tx, user.ID, ride, ride.PickupLatitude, ride.PickupLongitude, ride.DestinationLatitude, ride.DestinationLongitude)
 	if err != nil {
@@ -761,29 +761,60 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 
 func getChairStats(ctx context.Context, tx *sqlx.Tx, chairID string) (appGetNotificationResponseChairStats, error) {
 	stats := appGetNotificationResponseChairStats{}
-	// ベンチ互換: ARRIVED・CARRYING・COMPLETED が全て揃ったライドのみ完走とみなす
-	// （evaluation だけだと、定義がずれて CODE=33 になる）
-	row := struct {
-		Cnt     int             `db:"cnt"`
-		AvgEval sql.NullFloat64 `db:"avg_eval"`
-	}{}
-	if err := tx.GetContext(
+
+	rides := []Ride{}
+	err := tx.SelectContext(
 		ctx,
-		&row,
-		`SELECT COUNT(*) AS cnt, AVG(r.evaluation) AS avg_eval
-		 FROM rides r
-		 WHERE r.chair_id = ?
-		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'ARRIVED')
-		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'CARRYING')
-		   AND EXISTS (SELECT 1 FROM ride_statuses rs WHERE rs.ride_id = r.id AND rs.status = 'COMPLETED')`,
+		&rides,
+		`SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC`,
 		chairID,
-	); err != nil {
+	)
+	if err != nil {
 		return stats, err
 	}
-	stats.TotalRidesCount = row.Cnt
-	if row.AvgEval.Valid {
-		stats.TotalEvaluationAvg = row.AvgEval.Float64
+
+	totalRideCount := 0
+	totalEvaluation := 0.0
+	for _, ride := range rides {
+		rideStatuses := []RideStatus{}
+		err = tx.SelectContext(
+			ctx,
+			&rideStatuses,
+			`SELECT * FROM ride_statuses WHERE ride_id = ? ORDER BY created_at`,
+			ride.ID,
+		)
+		if err != nil {
+			return stats, err
+		}
+
+		var arrivedAt, pickupedAt *time.Time
+		var isCompleted bool
+		for _, status := range rideStatuses {
+			if status.Status == "ARRIVED" {
+				arrivedAt = &status.CreatedAt
+			} else if status.Status == "CARRYING" {
+				pickupedAt = &status.CreatedAt
+			}
+			if status.Status == "COMPLETED" {
+				isCompleted = true
+			}
+		}
+		if arrivedAt == nil || pickupedAt == nil {
+			continue
+		}
+		if !isCompleted {
+			continue
+		}
+
+		totalRideCount++
+		totalEvaluation += float64(*ride.Evaluation)
 	}
+
+	stats.TotalRidesCount = totalRideCount
+	if totalRideCount > 0 {
+		stats.TotalEvaluationAvg = totalEvaluation / float64(totalRideCount)
+	}
+
 	return stats, nil
 }
 
