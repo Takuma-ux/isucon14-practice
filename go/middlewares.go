@@ -66,7 +66,18 @@ func chairAuthMiddleware(next http.Handler) http.Handler {
 		}
 		accessToken := c.Value
 		chair := &Chair{}
-		err = db.GetContext(ctx, chair, "SELECT * FROM chairs WHERE access_token = ?", accessToken)
+		// coordinate / notification で使う列だけ読む（SELECT * は行が肥大化している）
+		err = db.GetContext(
+			ctx,
+			chair,
+			`SELECT id,
+			        latitude, longitude,
+			        active_ride_id, active_ride_status,
+			        active_pickup_latitude, active_pickup_longitude,
+			        active_destination_latitude, active_destination_longitude
+			 FROM chairs WHERE access_token = ?`,
+			accessToken,
+		)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusUnauthorized, errors.New("invalid access token"))
