@@ -763,11 +763,24 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		stats := appGetNotificationResponseChairStats{
-			TotalRidesCount: chair.TotalRidesCount,
+		// 列キャッシュは COMPLETED INSERT 時点で +1 済み。
+		// まだ ARRIVED 等を送る段階で評価が先行すると got=want+1 (CODE=33) になるため、
+		// 今回返す status が COMPLETED 以外なら「この ride 分」を差し引く。
+		ridesCount := chair.TotalRidesCount
+		evalSum := chair.TotalEvaluationSum
+		if status != "COMPLETED" && ride.Evaluation != nil {
+			ridesCount--
+			evalSum -= int64(*ride.Evaluation)
+			if ridesCount < 0 {
+				ridesCount = 0
+			}
 		}
-		if chair.TotalRidesCount > 0 {
-			stats.TotalEvaluationAvg = float64(chair.TotalEvaluationSum) / float64(chair.TotalRidesCount)
+
+		stats := appGetNotificationResponseChairStats{
+			TotalRidesCount: ridesCount,
+		}
+		if ridesCount > 0 {
+			stats.TotalEvaluationAvg = float64(evalSum) / float64(ridesCount)
 		}
 
 		response.Data.Chair = &appGetNotificationResponseChair{
