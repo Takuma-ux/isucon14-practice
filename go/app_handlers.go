@@ -122,6 +122,16 @@ func appPostUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rememberUser(&User{
+		ID:             userID,
+		Username:       req.Username,
+		Firstname:      req.FirstName,
+		Lastname:       req.LastName,
+		DateOfBirth:    req.DateOfBirth,
+		AccessToken:    accessToken,
+		InvitationCode: invitationCode,
+	})
+
 	http.SetCookie(w, &http.Cookie{
 		Path:  "/",
 		Name:  "app_session",
@@ -307,6 +317,7 @@ func insertRideStatus(ctx context.Context, exec execer, rideID, status string) e
 		); err != nil {
 			return err
 		}
+		patchChairByRideID(rideID, status)
 	}
 	return nil
 }
@@ -454,7 +465,8 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ride.LatestStatus = sql.NullString{String: "MATCHING", Valid: true}
-	if _, _, err := assignChairToRide(ctx, tx, &ride, user); err != nil {
+	assigned, _, matchedID, matchedUser, err := assignChairToRide(ctx, tx, &ride, user)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -464,7 +476,12 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kickMatching()
+	patchUserByID(user.ID, func(u *User) {
+		u.LastRideID = sql.NullString{String: rideID, Valid: true}
+	})
+	if assigned {
+		memAssignChair(matchedID, &ride, matchedUser, "MATCHING")
+	}
 
 	writeJSON(w, http.StatusAccepted, &appPostRidesResponse{
 		RideID: rideID,
@@ -601,30 +618,6 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// getChairStats 用カウンタ（完走確定＝COMPLETED INSERT と同じタイミング）
-	if ride.ChairID.Valid {
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE chairs
-			 SET total_rides_count = total_rides_count + 1,
-			     total_evaluation_sum = total_evaluation_sum + ?
-			 WHERE id = ?`,
-			req.Evaluation, ride.ChairID.String,
-		); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-	}
-
-	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE id = ?`, rideID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, errors.New("ride not found"))
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
 	paymentToken := &PaymentToken{}
 	if err := tx.GetContext(ctx, paymentToken, `SELECT * FROM payment_tokens WHERE user_id = ?`, ride.UserID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -635,10 +628,16 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fare, err := calculateDiscountedFare(ctx, tx, ride.UserID, ride, ride.PickupLatitude, ride.PickupLongitude, ride.DestinationLatitude, ride.DestinationLongitude)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+	fare := 0
+	if ride.Fare.Valid {
+		fare = int(ride.Fare.Int64)
+	} else {
+		var fareErr error
+		fare, fareErr = calculateDiscountedFare(ctx, tx, ride.UserID, ride, ride.PickupLatitude, ride.PickupLongitude, ride.DestinationLatitude, ride.DestinationLongitude)
+		if fareErr != nil {
+			writeError(w, http.StatusInternalServerError, fareErr)
+			return
+		}
 	}
 	paymentGatewayRequest := &paymentGatewayPostPaymentRequest{
 		Amount: fare,
@@ -652,6 +651,7 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 決済 HTTP のあいだ chairs をロックしない（座標更新が止まるのを防ぐ）
 	if err := requestPaymentGatewayPostPayment(ctx, paymentGatewayURL, paymentToken.Token, paymentGatewayRequest, func() ([]Ride, error) {
 		rides := []Ride{}
 		if err := tx.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE user_id = ? ORDER BY created_at ASC`, ride.UserID); err != nil {
@@ -667,13 +667,37 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if ride.ChairID.Valid {
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE chairs
+			 SET total_rides_count = total_rides_count + 1,
+			     total_evaluation_sum = total_evaluation_sum + ?
+			 WHERE id = ?`,
+			req.Evaluation, ride.ChairID.String,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+
+	var completedAt time.Time
+	if err := tx.GetContext(ctx, &completedAt, `SELECT updated_at FROM rides WHERE id = ?`, rideID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("ride not found"))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, &appPostRideEvaluationResponse{
-		CompletedAt: ride.UpdatedAt.UnixMilli(),
+		CompletedAt: completedAt.UnixMilli(),
 	})
 }
 

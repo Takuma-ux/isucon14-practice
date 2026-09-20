@@ -70,8 +70,6 @@ func setup() http.Handler {
 	_db.SetMaxIdleConns(100)
 	db = _db
 
-	go matchingWorker()
-
 	mux := chi.NewRouter()
 	// 座標・通知の高頻度リクエストでは Logger のコストが大きいため付けない
 	mux.Use(middleware.Recoverer)
@@ -134,6 +132,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+
+	resetMemCaches()
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("failed to initialize: %s: %w", string(out), err))

@@ -63,6 +63,16 @@ func chairPostChairs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	rememberChair(&Chair{
+		ID:          chairID,
+		OwnerID:     owner.ID,
+		Name:        req.Name,
+		Model:       req.Model,
+		IsActive:    false,
+		AccessToken: accessToken,
+		Speed:       speed,
+		IsFree:      true,
+	}, accessToken)
 
 	http.SetCookie(w, &http.Cookie{
 		Path:  "/",
@@ -95,6 +105,9 @@ func chairPostActivity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	patchChairByID(chair.ID, func(c *Chair) {
+		c.IsActive = req.IsActive
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -138,6 +151,10 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	patchChairByID(chair.ID, func(c *Chair) {
+		c.Latitude = sql.NullInt64{Int64: int64(req.Latitude), Valid: true}
+		c.Longitude = sql.NullInt64{Int64: int64(req.Longitude), Valid: true}
+	})
 
 	// middleware で読んだ chairs.active_ride_* を使う（rides の ORDER BY SELECT をしない）
 	if chair.ActiveRideID.Valid {
@@ -237,7 +254,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
-			kickMatching()
+			memFreeChair(chair.ID)
 		}
 	}
 

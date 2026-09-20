@@ -9,27 +9,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-var matchingKick = make(chan struct{}, 1)
-
-func kickMatching() {
-	select {
-	case matchingKick <- struct{}{}:
-	default:
-	}
-}
-
-func matchingWorker() {
-	for range matchingKick {
-		ctx := context.Background()
-		for {
-			matched, err := matchOneRide(ctx)
-			if err != nil || !matched {
-				break
-			}
-		}
-	}
-}
-
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -79,7 +58,7 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	assigned, raced, err := assignChairToRide(ctx, tx, ride, nil)
+	assigned, raced, matchedID, user, err := assignChairToRide(ctx, tx, ride, nil)
 	if err != nil {
 		return false, err
 	}
@@ -93,13 +72,18 @@ func matchOneRide(ctx context.Context) (bool, error) {
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
+
+	status := ride.LatestStatus.String
+	if status == "" {
+		status = "MATCHING"
+	}
+	memAssignChair(matchedID, ride, user, status)
 	return true, nil
 }
 
 // assigned: 椅子とライドの両方を更新した
 // raced: 他のマッチングと衝突したのでリトライが必要（TX は commit しない）
-func assignChairToRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, user *User) (assigned bool, raced bool, err error) {
-	var matchedID string
+func assignChairToRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, user *User) (assigned bool, raced bool, matchedID string, outUser *User, err error) {
 	if err := tx.GetContext(
 		ctx,
 		&matchedID,
@@ -108,20 +92,20 @@ func assignChairToRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, user *User)
 		   AND is_free = TRUE
 		   AND latitude IS NOT NULL
 		   AND longitude IS NOT NULL
-		 ORDER BY (ABS(latitude - ?) + ABS(longitude - ?)) / IF(speed > 0, speed, 1) ASC
+		 ORDER BY (ABS(latitude - ?) + ABS(longitude - ?)) ASC, speed DESC
 		 LIMIT 1`,
 		ride.PickupLatitude, ride.PickupLongitude,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return false, false, nil
+			return false, false, "", nil, nil
 		}
-		return false, false, err
+		return false, false, "", nil, err
 	}
 
 	if user == nil {
 		user = &User{}
 		if err := tx.GetContext(ctx, user, `SELECT id, firstname, lastname FROM users WHERE id = ?`, ride.UserID); err != nil {
-			return false, false, err
+			return false, false, "", nil, err
 		}
 	}
 
@@ -150,27 +134,27 @@ func assignChairToRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, user *User)
 		matchedID,
 	)
 	if err != nil {
-		return false, false, err
+		return false, false, "", nil, err
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return false, false, err
+		return false, false, "", nil, err
 	}
 	if n == 0 {
-		return false, true, nil
+		return false, true, "", nil, nil
 	}
 
 	result, err = tx.ExecContext(ctx, `UPDATE rides SET chair_id = ? WHERE id = ? AND chair_id IS NULL`, matchedID, ride.ID)
 	if err != nil {
-		return false, false, err
+		return false, false, "", nil, err
 	}
 	n, err = result.RowsAffected()
 	if err != nil {
-		return false, false, err
+		return false, false, "", nil, err
 	}
 	if n == 0 {
-		return false, true, nil
+		return false, true, "", nil, nil
 	}
 
-	return true, false, nil
+	return true, false, matchedID, user, nil
 }

@@ -16,6 +16,11 @@ func appAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		accessToken := c.Value
+		if cached, ok := loadUserByToken(accessToken); ok {
+			ctx = context.WithValue(ctx, "user", cached)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		user := &User{}
 		err = db.GetContext(ctx, user, "SELECT * FROM users WHERE access_token = ?", accessToken)
 		if err != nil {
@@ -26,6 +31,7 @@ func appAuthMiddleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		rememberUser(user)
 
 		ctx = context.WithValue(ctx, "user", user)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -65,6 +71,11 @@ func chairAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		accessToken := c.Value
+		if cached, ok := loadChairByToken(accessToken); ok {
+			ctx = context.WithValue(ctx, "chair", cached)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		chair := &Chair{}
 		// coordinate / notification で使う列だけ読む（SELECT * は行が肥大化している）
 		err = db.GetContext(
@@ -87,6 +98,7 @@ func chairAuthMiddleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		rememberChair(chair, accessToken)
 
 		ctx = context.WithValue(ctx, "chair", chair)
 		next.ServeHTTP(w, r.WithContext(ctx))
