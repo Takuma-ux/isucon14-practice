@@ -763,33 +763,48 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 列キャッシュは COMPLETED INSERT 時点で +1 済み。
-		// 未送信の ARRIVED 等を返すときに評価が先行していると got=want+1 (CODE=33) になる。
-		// TX 冒頭で読んだ ride.Evaluation は、chair の count より古い可能性がある
-		//（READ COMMITTED、または ride→chair の間に評価 TX が commit）。
-		// count と同じタイミングで evaluation / COMPLETED の有無を読み直して差し引く。
-		ridesCount := chair.TotalRidesCount
-		evalSum := chair.TotalEvaluationSum
-		if status != "COMPLETED" {
-			var evaluation sql.NullInt64
-			if err := tx.GetContext(ctx, &evaluation, `SELECT evaluation FROM rides WHERE id = ?`, ride.ID); err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			if evaluation.Valid {
-				ridesCount--
-				evalSum -= evaluation.Int64
-				if ridesCount < 0 {
-					ridesCount = 0
-				}
-			}
+		// ベンチの want = 「このチェアの COMPLETED を何回 app 側に通知済みか」。
+		// 列キャッシュ (total_rides_count) は COMPLETED INSERT と同じ TX で +1 されるため、
+		// 非COMPLETED ステータスを返す瞬間に評価 TX が割り込むと got=want+1 (CODE=33)。
+		//
+		// 最も安全な方法: rides.latest_status で直接集計し、
+		// 今回 COMPLETED を届ける場合は現在ライドを含め、
+		// そうでなければ現在ライドを除外する（1クエリ・INDEX 使用）。
+		type statsRow struct {
+			Cnt     int     `db:"cnt"`
+			EvalSum float64 `db:"eval_sum"`
+		}
+		var sr statsRow
+		var statsErr error
+		if status == "COMPLETED" {
+			statsErr = tx.GetContext(ctx, &sr,
+				`SELECT COUNT(*) AS cnt, COALESCE(SUM(evaluation), 0) AS eval_sum
+				 FROM rides
+				 WHERE chair_id = ?
+				   AND latest_status = 'COMPLETED'`,
+				chair.ID)
+		} else {
+			statsErr = tx.GetContext(ctx, &sr,
+				`SELECT COUNT(*) AS cnt, COALESCE(SUM(evaluation), 0) AS eval_sum
+				 FROM rides
+				 WHERE chair_id = ?
+				   AND latest_status = 'COMPLETED'
+				   AND id != ?`,
+				chair.ID, ride.ID)
+		}
+		if statsErr != nil {
+			writeError(w, http.StatusInternalServerError, statsErr)
+			return
+		}
+		ridesCount := sr.Cnt
+		var evalAvg float64
+		if ridesCount > 0 {
+			evalAvg = sr.EvalSum / float64(ridesCount)
 		}
 
 		stats := appGetNotificationResponseChairStats{
-			TotalRidesCount: ridesCount,
-		}
-		if ridesCount > 0 {
-			stats.TotalEvaluationAvg = float64(evalSum) / float64(ridesCount)
+			TotalRidesCount:    ridesCount,
+			TotalEvaluationAvg: evalAvg,
 		}
 
 		response.Data.Chair = &appGetNotificationResponseChair{

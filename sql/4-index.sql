@@ -30,7 +30,8 @@ ALTER TABLE rides
     ADD COLUMN latest_status VARCHAR(32) NULL,
     ADD INDEX idx_rides_chair_id(chair_id),
     ADD INDEX idx_rides_user_id(user_id),
-    ADD INDEX idx_rides_chair_id_created_at(chair_id, created_at);
+    ADD INDEX idx_rides_chair_id_created_at(chair_id, created_at),
+    ADD INDEX idx_rides_chair_id_latest_status(chair_id, latest_status);
 
 ALTER TABLE chairs
     ADD COLUMN latitude INT NULL,
