@@ -764,15 +764,24 @@ func appGetNotification(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 列キャッシュは COMPLETED INSERT 時点で +1 済み。
-		// まだ ARRIVED 等を送る段階で評価が先行すると got=want+1 (CODE=33) になるため、
-		// 今回返す status が COMPLETED 以外なら「この ride 分」を差し引く。
+		// 未送信の ARRIVED 等を返すときに評価が先行していると got=want+1 (CODE=33) になる。
+		// TX 冒頭で読んだ ride.Evaluation は、chair の count より古い可能性がある
+		//（READ COMMITTED、または ride→chair の間に評価 TX が commit）。
+		// count と同じタイミングで evaluation / COMPLETED の有無を読み直して差し引く。
 		ridesCount := chair.TotalRidesCount
 		evalSum := chair.TotalEvaluationSum
-		if status != "COMPLETED" && ride.Evaluation != nil {
-			ridesCount--
-			evalSum -= int64(*ride.Evaluation)
-			if ridesCount < 0 {
-				ridesCount = 0
+		if status != "COMPLETED" {
+			var evaluation sql.NullInt64
+			if err := tx.GetContext(ctx, &evaluation, `SELECT evaluation FROM rides WHERE id = ?`, ride.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			if evaluation.Valid {
+				ridesCount--
+				evalSum -= evaluation.Int64
+				if ridesCount < 0 {
+					ridesCount = 0
+				}
 			}
 		}
 
