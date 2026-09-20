@@ -5,13 +5,35 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+
+	"github.com/jmoiron/sqlx"
 )
+
+var matchingKick = make(chan struct{}, 1)
+
+func kickMatching() {
+	select {
+	case matchingKick <- struct{}{}:
+	default:
+	}
+}
+
+func matchingWorker() {
+	for range matchingKick {
+		ctx := context.Background()
+		for {
+			matched, err := matchOneRide(ctx)
+			if err != nil || !matched {
+				break
+			}
+		}
+	}
+}
 
 // このAPIをインスタンス内から一定間隔で叩かせることで、椅子とライドをマッチングさせる
 func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// 0.1s 間隔でも、待ちライドが無いときはトランザクションを開かない
 	var waiting string
 	if err := db.GetContext(ctx, &waiting, `SELECT id FROM rides WHERE chair_id IS NULL LIMIT 1`); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -57,6 +79,26 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
+	assigned, raced, err := assignChairToRide(ctx, tx, ride, nil)
+	if err != nil {
+		return false, err
+	}
+	if raced {
+		return true, nil
+	}
+	if !assigned {
+		return false, nil
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// assigned: 椅子とライドの両方を更新した
+// raced: 他のマッチングと衝突したのでリトライが必要（TX は commit しない）
+func assignChairToRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, user *User) (assigned bool, raced bool, err error) {
 	var matchedID string
 	if err := tx.GetContext(
 		ctx,
@@ -71,14 +113,16 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		ride.PickupLatitude, ride.PickupLongitude,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+			return false, false, nil
 		}
-		return false, err
+		return false, false, err
 	}
 
-	user := &User{}
-	if err := tx.GetContext(ctx, user, `SELECT id, firstname, lastname FROM users WHERE id = ?`, ride.UserID); err != nil {
-		return false, err
+	if user == nil {
+		user = &User{}
+		if err := tx.GetContext(ctx, user, `SELECT id, firstname, lastname FROM users WHERE id = ?`, ride.UserID); err != nil {
+			return false, false, err
+		}
 	}
 
 	status := ride.LatestStatus.String
@@ -106,30 +150,27 @@ func matchOneRide(ctx context.Context) (bool, error) {
 		matchedID,
 	)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if n == 0 {
-		return true, nil
+		return false, true, nil
 	}
 
 	result, err = tx.ExecContext(ctx, `UPDATE rides SET chair_id = ? WHERE id = ? AND chair_id IS NULL`, matchedID, ride.ID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	n, err = result.RowsAffected()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if n == 0 {
-		return true, nil
+		return false, true, nil
 	}
 
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
+	return true, false, nil
 }

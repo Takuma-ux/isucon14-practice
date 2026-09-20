@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/oklog/ulid/v2"
 	"net/http"
 	"time"
-	"github.com/oklog/ulid/v2"
 )
 
 type chairPostChairsRequest struct {
@@ -237,6 +237,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
+			kickMatching()
 		}
 	}
 

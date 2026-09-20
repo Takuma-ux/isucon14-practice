@@ -45,6 +45,12 @@ myisam-recover-options  = BACKUP
 
 max_connections        = 500
 
+innodb_buffer_pool_size = 1G
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+skip-log-bin
+performance_schema = OFF
+
 # table_open_cache       = 4000
 
 #

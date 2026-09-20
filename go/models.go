@@ -6,31 +6,31 @@ import (
 )
 
 type Chair struct {
-	ID                     string       `db:"id"`
-	OwnerID                string       `db:"owner_id"`
-	Name                   string       `db:"name"`
-	Model                  string       `db:"model"`
-	IsActive               bool         `db:"is_active"`
-	AccessToken            string       `db:"access_token"`
-	CreatedAt              time.Time    `db:"created_at"`
-	UpdatedAt              time.Time    `db:"updated_at"`
-	TotalDistance          int          `db:"total_distance"`
-	TotalDistanceUpdatedAt sql.NullTime `db:"total_distance_updated_at"`
-	Latitude               sql.NullInt64 `db:"latitude"`
-	Longitude              sql.NullInt64 `db:"longitude"`
-	Speed                  int          `db:"speed"`
-	IsFree                 bool         `db:"is_free"`
-	TotalRidesCount        int          `db:"total_rides_count"`
-	TotalEvaluationSum     int64        `db:"total_evaluation_sum"`
-	ActiveRideID                 sql.NullString `db:"active_ride_id"`
-	ActiveRideStatus             sql.NullString `db:"active_ride_status"`
-	ActivePickupLatitude         sql.NullInt64  `db:"active_pickup_latitude"`
-	ActivePickupLongitude        sql.NullInt64  `db:"active_pickup_longitude"`
-	ActiveDestinationLatitude    sql.NullInt64  `db:"active_destination_latitude"`
-	ActiveDestinationLongitude   sql.NullInt64  `db:"active_destination_longitude"`
-	ActiveUserID                 sql.NullString `db:"active_user_id"`
-	ActiveUserFirstname          sql.NullString `db:"active_user_firstname"`
-	ActiveUserLastname           sql.NullString `db:"active_user_lastname"`
+	ID                         string         `db:"id"`
+	OwnerID                    string         `db:"owner_id"`
+	Name                       string         `db:"name"`
+	Model                      string         `db:"model"`
+	IsActive                   bool           `db:"is_active"`
+	AccessToken                string         `db:"access_token"`
+	CreatedAt                  time.Time      `db:"created_at"`
+	UpdatedAt                  time.Time      `db:"updated_at"`
+	TotalDistance              int            `db:"total_distance"`
+	TotalDistanceUpdatedAt     sql.NullTime   `db:"total_distance_updated_at"`
+	Latitude                   sql.NullInt64  `db:"latitude"`
+	Longitude                  sql.NullInt64  `db:"longitude"`
+	Speed                      int            `db:"speed"`
+	IsFree                     bool           `db:"is_free"`
+	TotalRidesCount            int            `db:"total_rides_count"`
+	TotalEvaluationSum         int64          `db:"total_evaluation_sum"`
+	ActiveRideID               sql.NullString `db:"active_ride_id"`
+	ActiveRideStatus           sql.NullString `db:"active_ride_status"`
+	ActivePickupLatitude       sql.NullInt64  `db:"active_pickup_latitude"`
+	ActivePickupLongitude      sql.NullInt64  `db:"active_pickup_longitude"`
+	ActiveDestinationLatitude  sql.NullInt64  `db:"active_destination_latitude"`
+	ActiveDestinationLongitude sql.NullInt64  `db:"active_destination_longitude"`
+	ActiveUserID               sql.NullString `db:"active_user_id"`
+	ActiveUserFirstname        sql.NullString `db:"active_user_firstname"`
+	ActiveUserLastname         sql.NullString `db:"active_user_lastname"`
 }
 
 type ChairModel struct {
@@ -47,15 +47,16 @@ type ChairLocation struct {
 }
 
 type User struct {
-	ID             string    `db:"id"`
-	Username       string    `db:"username"`
-	Firstname      string    `db:"firstname"`
-	Lastname       string    `db:"lastname"`
-	DateOfBirth    string    `db:"date_of_birth"`
-	AccessToken    string    `db:"access_token"`
-	InvitationCode string    `db:"invitation_code"`
-	CreatedAt      time.Time `db:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at"`
+	ID             string         `db:"id"`
+	Username       string         `db:"username"`
+	Firstname      string         `db:"firstname"`
+	Lastname       string         `db:"lastname"`
+	DateOfBirth    string         `db:"date_of_birth"`
+	AccessToken    string         `db:"access_token"`
+	InvitationCode string         `db:"invitation_code"`
+	CreatedAt      time.Time      `db:"created_at"`
+	UpdatedAt      time.Time      `db:"updated_at"`
+	LastRideID     sql.NullString `db:"last_ride_id"`
 }
 
 type PaymentToken struct {
@@ -76,6 +77,7 @@ type Ride struct {
 	CreatedAt            time.Time      `db:"created_at"`
 	UpdatedAt            time.Time      `db:"updated_at"`
 	LatestStatus         sql.NullString `db:"latest_status"`
+	Fare                 sql.NullInt64  `db:"fare"`
 }
 
 type RideStatus struct {

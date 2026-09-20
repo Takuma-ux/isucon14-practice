@@ -18,6 +18,7 @@ import (
 )
 
 var db *sqlx.DB
+var cachedPaymentGatewayURL string
 
 func main() {
 	mux := setup()
@@ -58,6 +59,7 @@ func setup() http.Handler {
 	dbConfig.Net = "tcp"
 	dbConfig.DBName = dbname
 	dbConfig.ParseTime = true
+	dbConfig.InterpolateParams = true
 
 	_db, err := sqlx.Connect("mysql", dbConfig.FormatDSN())
 	if err != nil {
@@ -67,6 +69,8 @@ func setup() http.Handler {
 	_db.SetMaxOpenConns(100)
 	_db.SetMaxIdleConns(100)
 	db = _db
+
+	go matchingWorker()
 
 	mux := chi.NewRouter()
 	// 座標・通知の高頻度リクエストでは Logger のコストが大きいため付けない
@@ -140,6 +144,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	cachedPaymentGatewayURL = req.PaymentServer
 
 	writeJSON(w, http.StatusOK, postInitializeResponse{Language: "go"})
 }

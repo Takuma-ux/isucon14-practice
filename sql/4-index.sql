@@ -1,7 +1,8 @@
 ALTER TABLE chairs
     ADD COLUMN total_distance INT NOT NULL DEFAULT 0,
     ADD COLUMN total_distance_updated_at DATETIME(6) NULL,
-    ADD INDEX idx_chairs_owner_id (owner_id);
+    ADD INDEX idx_chairs_owner_id (owner_id),
+    ADD UNIQUE INDEX idx_chairs_access_token (access_token);
 
 ALTER TABLE chair_locations
     ADD INDEX idx_chair_locations_chair_id_created_at (chair_id, created_at);
@@ -24,14 +25,24 @@ SET chairs.total_distance = IFNULL(d.total_distance, 0),
     chairs.total_distance_updated_at = d.total_distance_updated_at;
 
 ALTER TABLE ride_statuses
-    ADD INDEX idx_ride_statuses_ride_id_created_at (ride_id, created_at);
+    ADD INDEX idx_ride_statuses_ride_id_created_at (ride_id, created_at),
+    ADD INDEX idx_ride_statuses_ride_id_app_sent (ride_id, app_sent_at, created_at),
+    ADD INDEX idx_ride_statuses_ride_id_chair_sent (ride_id, chair_sent_at, created_at);
 
 ALTER TABLE rides
     ADD COLUMN latest_status VARCHAR(32) NULL,
+    ADD COLUMN fare INT NULL,
     ADD INDEX idx_rides_chair_id(chair_id),
-    ADD INDEX idx_rides_user_id(user_id),
+    ADD INDEX idx_rides_user_id_created_at(user_id, created_at),
     ADD INDEX idx_rides_chair_id_created_at(chair_id, created_at),
     ADD INDEX idx_rides_chair_id_latest_status(chair_id, latest_status);
+
+ALTER TABLE users
+    ADD COLUMN last_ride_id VARCHAR(26) NULL;
+
+ALTER TABLE coupons
+    ADD INDEX idx_coupons_used_by (used_by),
+    ADD INDEX idx_coupons_user_unused (user_id, used_by, created_at);
 
 ALTER TABLE chairs
     ADD COLUMN latitude INT NULL,
@@ -134,3 +145,17 @@ SET c.active_ride_id = r.id,
     c.active_user_lastname = u.lastname,
     c.updated_at = c.updated_at
 WHERE c.is_free = FALSE;
+
+-- notification 用: 各ユーザーの最新ライド
+UPDATE users u
+INNER JOIN (
+    SELECT r.user_id, r.id
+    FROM rides r
+    INNER JOIN (
+        SELECT user_id, MAX(created_at) AS max_at
+        FROM rides
+        GROUP BY user_id
+    ) t ON t.user_id = r.user_id AND t.max_at = r.created_at
+) x ON x.user_id = u.id
+SET u.last_ride_id = x.id,
+    u.updated_at = u.updated_at;
