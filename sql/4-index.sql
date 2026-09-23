@@ -10,7 +10,8 @@ ALTER TABLE ride_statuses
     ADD INDEX idx_ride_statuses_ride_id_created_at (ride_id, created_at);
 
 ALTER TABLE rides
-    ADD INDEX idx_rides_chair_id_updated_at (chair_id, updated_at);
+    ADD INDEX idx_rides_chair_id_updated_at (chair_id, updated_at),
+    ADD INDEX idx_rides_user_id_created_at (user_id, created_at);
 
 ALTER TABLE chairs
     ADD INDEX idx_chairs_access_token (access_token);
