@@ -34,4 +34,4 @@ SET chairs.total_distance = IFNULL(d.total_distance, 0),
     chairs.total_distance_updated_at = d.total_distance_updated_at;
 
 ALTER TABLE coupons
-    ADD INDEX idx_coupons_user_id_created_at (user_id, created_at);
+    ADD INDEX idx_coupons_used_by (used_by);
