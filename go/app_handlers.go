@@ -801,6 +801,9 @@ func getChairStats(ctx context.Context, tx queryer, chairID string) (appGetNotif
 			continue
 		}
 
+		if ride.Evaluation == nil {
+			continue
+		}
 		totalRideCount++
 		totalEvaluation += float64(*ride.Evaluation)
 	}
