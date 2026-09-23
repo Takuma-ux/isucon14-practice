@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -861,7 +860,7 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 
 
 	chairs := []Chair{}
-	err = tx.SelectContext(
+	err = db.SelectContext(
 		ctx,
 		&chairs,
 		`SELECT * FROM chairs`,
@@ -878,7 +877,7 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rides := []*Ride{}
-		if err := tx.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE chair_id = ? ORDER BY created_at DESC`, chair.ID); err != nil {
+		if err := db.SelectContext(ctx, &rides, `SELECT * FROM rides WHERE chair_id = ? ORDER BY created_at DESC`, chair.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -886,7 +885,7 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 		skip := false
 		for _, ride := range rides {
 			// 過去にライドが存在し、かつ、それが完了していない場合はスキップ
-			status, err := getLatestRideStatus(ctx, tx, ride.ID)
+			status, err := getLatestRideStatus(ctx, db, ride.ID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
@@ -902,7 +901,7 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 
 		// 最新の位置情報を取得
 		chairLocation := &ChairLocation{}
-		err = tx.GetContext(
+		err = db.GetContext(
 			ctx,
 			chairLocation,
 			`SELECT * FROM chair_locations WHERE chair_id = ? ORDER BY created_at DESC LIMIT 1`,
@@ -930,7 +929,7 @@ func appGetNearbyChairs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	retrievedAt := &time.Time{}
-	err = tx.GetContext(
+	err = db.GetContext(
 		ctx,
 		retrievedAt,
 		`SELECT CURRENT_TIMESTAMP(6)`,
