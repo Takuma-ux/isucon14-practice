@@ -41,7 +41,8 @@ SET status = (
     WHERE ride_id = rides.id
     ORDER BY created_at DESC 
     LIMIT 1
-);
+),
+updated_at = (updated_at)
 
 ALTER TABLE coupons
     ADD INDEX idx_coupons_used_by (used_by);
