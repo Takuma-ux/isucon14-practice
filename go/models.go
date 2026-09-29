@@ -60,6 +60,7 @@ type Ride struct {
 	Evaluation           *int           `db:"evaluation"`
 	CreatedAt            time.Time      `db:"created_at"`
 	UpdatedAt            time.Time      `db:"updated_at"`
+	Status				 string 		`db:"status"`
 }
 
 type RideStatus struct {

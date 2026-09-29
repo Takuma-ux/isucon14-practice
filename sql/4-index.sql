@@ -10,6 +10,7 @@ ALTER TABLE ride_statuses
     ADD INDEX idx_ride_statuses_ride_id_created_at (ride_id, created_at);
 
 ALTER TABLE rides
+    ADD COLUMN status ENUM ('MATCHING', 'ENROUTE', 'PICKUP', 'CARRYING', 'ARRIVED', 'COMPLETED') NOT NULL DEFAULT 'MATCHING',
     ADD INDEX idx_rides_chair_id_updated_at (chair_id, updated_at),
     ADD INDEX idx_rides_user_id_created_at (user_id, created_at);
 
@@ -32,6 +33,15 @@ UPDATE chairs
     ) d ON d.chair_id = chairs.id
 SET chairs.total_distance = IFNULL(d.total_distance, 0),
     chairs.total_distance_updated_at = d.total_distance_updated_at;
+
+UPDATE rides
+SET status = (
+    SELECT status
+    FROM ride_statuses 
+    WHERE ride_id = rides.id
+    ORDER BY created_at DESC 
+    LIMIT 1
+);
 
 ALTER TABLE coupons
     ADD INDEX idx_coupons_used_by (used_by);
