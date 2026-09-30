@@ -23,7 +23,7 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 	matched := &Chair{}
 
 	if err := db.GetContext(ctx, matched,
-		'SELECT c.*
+		`SELECT c.*
 		FROM chairs c
 		JOIN chair_locations loc ON loc.chair_id = c.id
 		WHERE c.is_active = TRUE
@@ -39,7 +39,7 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 					AND r.status <> 'COMPLETED'
 			)
 		ORDER BY ABS(loc.latitude - ?) + ABS(loc.longitude - ?)
-		LIMIT 1',
+		LIMIT 1`,
 		ride.PickupLatitude, ride.PickupLongitude); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
